@@ -1,0 +1,8 @@
+{
+  "name": "vnet-do",
+  "version": "1.0.0",
+  "description": "Simple helper for manage projects on different computers",
+  "main": "do.js",
+  "author": "vnetby",
+  "license": "ISC"
+}

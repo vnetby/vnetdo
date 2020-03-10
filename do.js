@@ -1,0 +1,421 @@
+const ARGS = process.argv;
+if (!ARGS[2]) return;
+
+const fs = require('fs');
+const exec = require('child_process').exec;
+
+const mysqldump = require('mysqldump')
+const mysql = require('mysql');
+const mysql_import = require('mysql-import');
+const Confirm = require('prompt-confirm');
+
+const SITE_CONF = JSON.parse(fs.readFileSync('.siteconf.json'));
+
+
+const COMMAND = ARGS[2];
+
+
+const ALLOW_COMMANDS = {
+  'export-db': () => exportDb({ help: true }),
+  'replace-sql': () => replaceSql({ help: true }),
+  'import-db': () => importDb({ help: true }),
+  'git-init': () => gitInit({ help: true }),
+  'replace-sql-url': () => replaceSqlUrl({ help: true }),
+  'get-sql-url': () => getSqlUrl({ help: true })
+}
+
+
+
+
+
+
+const init = () => {
+  switch (COMMAND) {
+    case 'export-db':
+      exportDb({});
+      break;
+    case 'replace-sql':
+      replaceSql({});
+      break;
+    case 'import-db':
+      importDb({});
+      break;
+    case 'git-init':
+      gitInit({});
+      break;
+    case 'replace-sql-url':
+      replaceSqlUrl({ replace: ARGS[3] });
+      break;
+    case 'get-sql-url':
+      getSqlUrl({});
+      break;
+
+
+    case 'help':
+      help({});
+      break;
+    default:
+      help({ noCommand: true });
+      break;
+  }
+}
+
+
+
+
+
+
+
+const help = ({ noCommand }) => {
+  if (noCommand) {
+    console.error(`ERROR: command ${ARGS[2]} does not exists!`);
+    console.log("_____________________________");
+  }
+  if (ARGS[3]) {
+    if (!ALLOW_COMMANDS[ARGS[3]]) {
+      console.error(`ERROR: command ${ARGS[3]} does not exists`);
+      return;
+    }
+    ALLOW_COMMANDS[ARGS[3]]();
+  } else {
+    for (let key in ALLOW_COMMANDS) {
+      ALLOW_COMMANDS[key]();
+      console.log("_____________________________");
+    }
+  }
+}
+
+
+
+
+
+
+
+const exportDb = ({ help }) => {
+  if (help) {
+    let row = `COMMAND: export-db\r\n`;
+    row += `ARGUMENTS: no arguments\r\n`;
+    row += `DESCRIPTION: Export database into dump.sql using access data and database name indicated in .siteconf.json file`;
+    console.log(row);
+    return;
+  }
+
+  let dbName = getConf('DB_NAME');
+  let dbUser = getConf('DB_USER');
+  let dbPass = getConf('DB_PASS');
+  let dbHost = getConf('DB_HOST');
+
+  mysqldump({
+    connection: {
+      host: dbHost,
+      user: dbUser,
+      password: dbPass,
+      database: dbName,
+    },
+    dumpToFile: './dump.sql',
+  })
+    .then((res) => {
+      console.log(res);
+    });
+}
+
+
+
+
+
+
+
+
+
+
+
+const replaceSql = ({ help }) => {
+  if (help) {
+    let row = 'COMMAND: replace-sql\r\n';
+    row += 'ARGUMENTS: 1 (from) - the string to search in dump file; 2 (to) - the replace string;\r\n';
+    row += 'DESCRIPTION: search string in dump.sql file and replace with other string';
+    console.log(row);
+    return;
+  }
+  let from = ARGS[3];
+  let to = ARGS[4];
+
+  if (!from) {
+    console.error('ERROR: missing first argument (string to replace)');
+    return;
+  }
+
+  if (!to) {
+    console.error('ERROR: missing second argument (replace string)');
+    return;
+  }
+
+  if (!fs.existsSync("./dump.sql")) {
+    console.error('ERROR: missing dump file. Please, do [node do export-db] before any action with sql file');
+    return;
+  }
+
+  let regex = new RegExp(from, 'gus');
+
+  let file = fs.readFileSync('./dump.sql', 'utf8');
+
+  file = file.replace(regex, to);
+
+  fs.writeFileSync('./dump.sql', file);
+
+  console.log(`${from} has been successfully replaced with ${to}`);
+}
+
+
+
+
+
+
+
+
+
+
+const importDb = ({ help }) => {
+  if (help) {
+    let row = "COMMAND: import-db\r\n";
+    row += "ARGUMENTS: no arguments\r\n";
+    row += "DESCRIPTION: create database and import data from dump.sql file";
+    console.log(row);
+    return;
+  }
+  if (!fs.existsSync('./dump.sql')) {
+    console.error(`ERROR: missing dump.sql file.`);
+    return;
+  }
+
+  let dbName = getConf('DB_NAME');
+  let dbUser = getConf('DB_USER');
+  let dbPass = getConf('DB_PASS');
+  let dbHost = getConf('DB_HOST');
+
+
+  let sql = mysql.createConnection({
+    host: dbHost,
+    user: dbUser,
+    password: dbPass,
+    // database: dbName,
+    debug: false,
+  });
+
+  sql.connect();
+
+  console.log("Connected to Mysql");
+
+  let dropQuery = `DROP DATABASE IF EXISTS ${dbName};`;
+  let createQuery = `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET \`utf8mb4\` COLLATE \`utf8mb4_unicode_ci\`;`;
+
+  console.log(`start delete database ${dbName}`);
+  sql.query(dropQuery, [1], () => {
+    console.log(`end elete database ${dbName}`);
+    console.log(`start create new database ${dbName}`);
+    sql.query(createQuery, [1], () => {
+      console.log(`end create database ${dbName}`);
+      sql.end();
+      console.log(`start import into ${dbName} database...`);
+      const importer = mysql_import.config({
+        host: dbHost,
+        user: dbUser,
+        password: dbPass,
+        database: dbName,
+        onerror: err => console.log(err.message)
+      });
+
+      importer.import('./dump.sql')
+        .then(res => {
+          console.log('all data has been imported.');
+          console.log(res);
+        });
+    });
+  });
+}
+
+
+
+
+
+
+
+
+
+
+const gitInit = ({ help }) => {
+  if (help) {
+    let row = 'COMMAND: git-init\r\n';
+    row += 'ARGUMETNS: no arguments\r\n';
+    row += 'DESCRIPTION: init empty repository using dates from .siteconf.json file';
+    console.log(row);
+    return
+  }
+
+  let gitUser = getConf('GIT_USER');
+  let gitPass = getConf('GIT_PASS');
+  let gitRepo = getConf('GIT_REPO');
+
+  const realInit = () => {
+    exec(`git init && git remote add origin https://${gitUser}:${gitPass}@github.com/${gitUser}/${gitRepo}.git`, { maxBuffer: 1024 * 500 });
+  }
+
+  if (fs.existsSync('./.git')) {
+    new Confirm('folder .git already exists, it will be removed, continue ?').run()
+      .then(res => {
+        if (!res) return;
+        exec(`rm ./.git -R`);
+        realInit();
+      });
+  } else {
+    realInit();
+  }
+
+}
+
+
+
+
+
+
+
+
+
+
+const replaceSqlUrl = ({ help, replace }) => {
+  if (help) {
+
+    return;
+  }
+
+  if (!replace) {
+    console.error(`ERROR: missing replace argument.`);
+    return;
+  }
+
+  if (!replace.includes('http')) {
+    console.error(`ERROR: repalce string must be a valid url with potocol (http://...)`);
+    return;
+  }
+
+  if (!fs.existsSync('./dump.sql')) {
+    console.error(`ERROR: missing dump.sql file`);
+    return;
+  }
+
+  let file = fs.readFileSync('./dump.sql', 'utf8');
+  let found = file.match(/siteurl'[\s]*,[\s]*'([^']+)/su);
+
+  let url = found[1];
+
+  if (!url) {
+    console.error(`ERROR: check your sql file format. Cann't find siteurl.`);
+    return;
+  }
+
+  let reg = new RegExp(url, 'gus');
+
+  file = file.replace(reg, replace);
+
+  fs.writeFileSync('./dump.sql', file);
+
+  console.log(`${url} has been successfully replaced with ${replace}`);
+}
+
+
+
+
+
+
+
+
+const getSqlUrl = ({ help }) => {
+  if (help) {
+
+    return;
+  }
+
+  if (!fs.existsSync('./dump.sql')) {
+    console.error(`ERROR: missing dump.sql file`);
+    return;
+  }
+
+  let file = fs.readFileSync('./dump.sql', 'utf8');
+  let found = file.match(/siteurl'[\s]*,[\s]*'([^']+)/su);
+
+  let url = found[1];
+
+  if (!url) {
+    console.error(`ERROR: check your sql file format. Cann't find siteurl.`);
+    return;
+  }
+
+  console.log(url);
+}
+
+
+
+
+
+
+
+
+
+const getConf = (key) => {
+  if (SITE_CONF[key]) return SITE_CONF[key];
+  return false;
+}
+
+
+
+
+
+
+const gitPush = () => {
+  const BACKUP_MYSQL = SITE_CONF.BACKUP_MYSQL;
+
+  const BACKUP_COMMIT_M = SITE_CONF.BACKUP_COMMIT_M;
+
+  const GIT_USER = SITE_CONF.GIT_USER;
+  const GIT_PASS = SITE_CONF.GIT_PASS;
+  const GIT_REPO = SITE_CONF.GIT_REPO;
+
+
+  const DB_NAME = SITE_CONF.DB_NAME;
+  const DB_USER = SITE_CONF.DB_USER;
+  const DB_PASSWORD = SITE_CONF.DB_PASS;
+
+
+
+  const MYSQL_COMMAND_BACKUP = BACKUP_MYSQL ? `mysqldump -u ${DB_USER} -p${DB_PASSWORD} ${DB_NAME} > ./.dump_mysql.sql &&` : '';
+  const GIT_COMMAND_BACKUP = `git add ./ && git commit -m "${BACKUP_COMMIT_M}" && git push origin master`;
+
+
+
+
+  if (!fs.existsSync("./.git")) {
+    exec(`git init && git remote add origin https://${GIT_USER}:${GIT_PASS}@github.com/${GIT_USER}/${GIT_REPO}.git`, { maxBuffer: 1024 * 500 }, (err, stdout, stderr) => {
+      if (err) {
+        console.log(err);
+        exit;
+      }
+      console.log(`stdout: ${stdout}`);
+      console.log(`stderr: ${stderr}`);
+    });
+  }
+
+  exec(`${MYSQL_COMMAND_BACKUP}${GIT_COMMAND_BACKUP}`, { maxBuffer: 1024 * 500 }, (err, stdout, stderr) => {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    console.log(`stdout: ${stdout}`);
+    console.log(`stderr: ${stderr}`);
+  });
+}
+
+
+
+
+
+init();
