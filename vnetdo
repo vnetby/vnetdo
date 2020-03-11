@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const ARGS = process.argv;
 if (!ARGS[2]) return;
 

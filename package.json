@@ -1,8 +1,17 @@
 {
   "name": "vnet-do",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "Simple helper for manage projects on different computers",
   "main": "do.js",
+  "scripts": {
+    "vnet-do": "node do"
+  },
   "author": "vnetby",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "mysql": "^2.18.1",
+    "mysql-import": "^3.0.6",
+    "mysqldump": "^3.1.0",
+    "prompt-confirm": "^2.0.4"
+  }
 }
